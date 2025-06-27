@@ -414,56 +414,187 @@ export class DatabaseService {
   cleanExistingData(): { tournamentsUpdated: number; teamsUpdated: number } {
     console.log('Cleaning existing database records...');
     
-    // Clean tournament names
-    const tournaments = this.db.prepare('SELECT id, name FROM tournaments').all() as { id: number; name: string }[];
+    // Clean tournament names - handle duplicates by merging them
+    const tournaments = this.db.prepare('SELECT id, name FROM tournaments ORDER BY id').all() as { id: number; name: string }[];
     let tournamentsUpdated = 0;
     
     const updateTournament = this.db.prepare('UPDATE tournaments SET name = ? WHERE id = ?');
-    const checkExisting = this.db.prepare('SELECT COUNT(*) as count FROM tournaments WHERE name = ? AND id != ?');
+    const deleteTournament = this.db.prepare('DELETE FROM tournaments WHERE id = ?');
+    const updateMatchesTournament = this.db.prepare('UPDATE matches SET tournament_id = ? WHERE tournament_id = ?');
+    const getTournamentById = this.db.prepare('SELECT id, name FROM tournaments WHERE id = ?');
+    
+    // Group tournaments by their cleaned names
+    const cleanedTournaments = new Map<string, { id: number; originalName: string; cleanedName: string }[]>();
     
     for (const tournament of tournaments) {
       const cleanedName = this.cleanTextContent(tournament.name);
-      if (cleanedName !== tournament.name) {
-        // Check if cleaned name would conflict with existing tournament
-        const existing = checkExisting.get(cleanedName, tournament.id) as { count: number };
-        if (existing.count === 0) {
+      if (!cleanedTournaments.has(cleanedName)) {
+        cleanedTournaments.set(cleanedName, []);
+      }
+      cleanedTournaments.get(cleanedName)!.push({
+        id: tournament.id,
+        originalName: tournament.name,
+        cleanedName
+      });
+    }
+    
+    // Process each group of tournaments with the same cleaned name
+    for (const [cleanedName, tournamentGroup] of cleanedTournaments) {
+      if (tournamentGroup.length === 1) {
+        // Single tournament - just update if name changed
+        const tournament = tournamentGroup[0];
+        if (tournament.cleanedName !== tournament.originalName) {
           try {
             updateTournament.run(cleanedName, tournament.id);
             tournamentsUpdated++;
+            console.log(`Updated tournament ${tournament.id}: "${tournament.originalName}" -> "${cleanedName}"`);
           } catch (error) {
-            console.log(`Skipping tournament ${tournament.id} due to constraint: ${error}`);
+            console.log(`Error updating tournament ${tournament.id}: ${error}`);
           }
-        } else {
-          console.log(`Skipping tournament ${tournament.id} - cleaned name would conflict`);
+        }
+      } else {
+        // Multiple tournaments with same cleaned name - merge them
+        const primaryTournament = tournamentGroup[0]; // Keep the first one
+        const duplicates = tournamentGroup.slice(1);
+        
+        console.log(`Merging ${tournamentGroup.length} tournaments with name "${cleanedName}"`);
+        
+        // Update primary tournament name
+        try {
+          updateTournament.run(cleanedName, primaryTournament.id);
+          tournamentsUpdated++;
+        } catch (error) {
+          console.log(`Error updating primary tournament ${primaryTournament.id}: ${error}`);
+        }
+        
+        // Move matches from duplicate tournaments to primary
+        for (const duplicate of duplicates) {
+          try {
+            updateMatchesTournament.run(primaryTournament.id, duplicate.id);
+            deleteTournament.run(duplicate.id);
+            console.log(`Merged tournament ${duplicate.id} into ${primaryTournament.id}`);
+          } catch (error) {
+            console.log(`Error merging tournament ${duplicate.id}: ${error}`);
+          }
         }
       }
     }
     
-    // Clean team names  
-    const teams = this.db.prepare('SELECT id, name FROM teams').all() as { id: number; name: string }[];
+    // Clean team names with similar approach
+    const teams = this.db.prepare('SELECT id, name FROM teams ORDER BY id').all() as { id: number; name: string }[];
     let teamsUpdated = 0;
     
     const updateTeam = this.db.prepare('UPDATE teams SET name = ? WHERE id = ?');
-    const checkExistingTeam = this.db.prepare('SELECT COUNT(*) as count FROM teams WHERE name = ? AND id != ?');
+    const deleteTeam = this.db.prepare('DELETE FROM teams WHERE id = ?');
+    const updateMatchesTeam1 = this.db.prepare('UPDATE matches SET team1_id = ? WHERE team1_id = ?');
+    const updateMatchesTeam2 = this.db.prepare('UPDATE matches SET team2_id = ? WHERE team2_id = ?');
+    
+    const cleanedTeams = new Map<string, { id: number; originalName: string; cleanedName: string }[]>();
     
     for (const team of teams) {
       const cleanedName = this.cleanTextContent(team.name);
-      if (cleanedName !== team.name) {
-        // Check if cleaned name would conflict with existing team
-        const existing = checkExistingTeam.get(cleanedName, team.id) as { count: number };
-        if (existing.count === 0) {
+      if (!cleanedTeams.has(cleanedName)) {
+        cleanedTeams.set(cleanedName, []);
+      }
+      cleanedTeams.get(cleanedName)!.push({
+        id: team.id,
+        originalName: team.name,
+        cleanedName
+      });
+    }
+    
+    // Process each group of teams with the same cleaned name
+    for (const [cleanedName, teamGroup] of cleanedTeams) {
+      if (teamGroup.length === 1) {
+        // Single team - just update if name changed
+        const team = teamGroup[0];
+        if (team.cleanedName !== team.originalName) {
           try {
             updateTeam.run(cleanedName, team.id);
             teamsUpdated++;
+            console.log(`Updated team ${team.id}: "${team.originalName}" -> "${cleanedName}"`);
           } catch (error) {
-            console.log(`Skipping team ${team.id} due to constraint: ${error}`);
+            console.log(`Error updating team ${team.id}: ${error}`);
           }
-        } else {
-          console.log(`Skipping team ${team.id} - cleaned name would conflict`);
+        }
+      } else {
+        // Multiple teams with same cleaned name - merge them
+        const primaryTeam = teamGroup[0];
+        const duplicates = teamGroup.slice(1);
+        
+        console.log(`Merging ${teamGroup.length} teams with name "${cleanedName}"`);
+        
+        // Update primary team name
+        try {
+          updateTeam.run(cleanedName, primaryTeam.id);
+          teamsUpdated++;
+        } catch (error) {
+          console.log(`Error updating primary team ${primaryTeam.id}: ${error}`);
+        }
+        
+        // Move matches from duplicate teams to primary
+        for (const duplicate of duplicates) {
+          try {
+            updateMatchesTeam1.run(primaryTeam.id, duplicate.id);
+            updateMatchesTeam2.run(primaryTeam.id, duplicate.id);
+            deleteTeam.run(duplicate.id);
+            console.log(`Merged team ${duplicate.id} into ${primaryTeam.id}`);
+          } catch (error) {
+            console.log(`Error merging team ${duplicate.id}: ${error}`);
+          }
         }
       }
     }
     
+    // Final cleanup: remove any remaining records with formatting issues
+    const dirtyTournaments = this.db.prepare(`
+      SELECT id, name FROM tournaments 
+      WHERE name LIKE '%\t%' OR name LIKE '%\n%' OR name LIKE '%  %'
+    `).all() as { id: number; name: string }[];
+    
+    if (dirtyTournaments.length > 0) {
+      console.log(`Found ${dirtyTournaments.length} tournaments with remaining formatting issues - removing orphaned records`);
+      const deleteDirtyTournament = this.db.prepare('DELETE FROM tournaments WHERE id = ?');
+      
+      for (const tournament of dirtyTournaments) {
+        // Check if this tournament has any matches
+        const matchCount = this.db.prepare('SELECT COUNT(*) as count FROM matches WHERE tournament_id = ?').get(tournament.id) as { count: number };
+        
+        if (matchCount.count === 0) {
+          // Safe to delete - no matches reference this tournament
+          deleteDirtyTournament.run(tournament.id);
+          console.log(`Removed orphaned dirty tournament ${tournament.id}: "${tournament.name}"`);
+        } else {
+          console.log(`Keeping tournament ${tournament.id} with ${matchCount.count} matches: "${tournament.name}"`);
+        }
+      }
+    }
+    
+    // Same for teams
+    const dirtyTeams = this.db.prepare(`
+      SELECT id, name FROM teams 
+      WHERE name LIKE '%\t%' OR name LIKE '%\n%' OR name LIKE '%  %'
+    `).all() as { id: number; name: string }[];
+    
+    if (dirtyTeams.length > 0) {
+      console.log(`Found ${dirtyTeams.length} teams with remaining formatting issues - removing orphaned records`);
+      const deleteDirtyTeam = this.db.prepare('DELETE FROM teams WHERE id = ?');
+      
+      for (const team of dirtyTeams) {
+        // Check if this team has any matches
+        const matchCount1 = this.db.prepare('SELECT COUNT(*) as count FROM matches WHERE team1_id = ?').get(team.id) as { count: number };
+        const matchCount2 = this.db.prepare('SELECT COUNT(*) as count FROM matches WHERE team2_id = ?').get(team.id) as { count: number };
+        
+        if (matchCount1.count === 0 && matchCount2.count === 0) {
+          // Safe to delete - no matches reference this team
+          deleteDirtyTeam.run(team.id);
+          console.log(`Removed orphaned dirty team ${team.id}: "${team.name}"`);
+        } else {
+          console.log(`Keeping team ${team.id} with ${matchCount1.count + matchCount2.count} matches: "${team.name}"`);
+        }
+      }
+    }
+
     console.log(`Cleaned ${tournamentsUpdated} tournaments and ${teamsUpdated} teams`);
     return { tournamentsUpdated, teamsUpdated };
   }
