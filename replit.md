@@ -111,6 +111,7 @@ A Flask-based web application that scrapes match data from VLR.gg (Valorant's pr
 ## Changelog
 
 - June 27, 2025. Initial setup
+- June 27, 2025. Fixed map name parsing - Cleaned excessive whitespace, tabs, and VLR.gg artifacts from map names
 
 ## User Preferences
 

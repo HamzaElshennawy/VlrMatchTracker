@@ -288,7 +288,38 @@ export class VLRScraper {
 
       // Extract map name
       const mapNameElement = $map.find('.map-name, .vm-stats-game-header-map, [class*="map"]').first();
-      const mapName = mapNameElement.text().trim();
+      let mapName = mapNameElement.text().trim();
+      
+      // Clean up map name - remove whitespace, tabs, newlines, and extra text
+      if (mapName) {
+        // Remove all whitespace, tabs, and newlines
+        mapName = mapName.replace(/[\t\n\r\s]+/g, ' ').trim();
+        
+        // Remove common VLR.gg artifacts like "PICK", "BAN", timestamps, etc.
+        mapName = mapName.replace(/\b(PICK|BAN|DECIDER)\b/gi, '').trim();
+        
+        // Remove timestamps (patterns like "16:30", "47:21", etc.)
+        mapName = mapName.replace(/\b\d{1,2}:\d{2}\b/g, '').trim();
+        
+        // Extract just the map name (first word should be the actual map)
+        const mapWords = mapName.split(/\s+/);
+        const validMaps = ['Bind', 'Haven', 'Split', 'Ascent', 'Dust2', 'Inferno', 'Mirage', 'Cache', 'Overpass', 'Vertigo', 'Nuke', 'Train', 'Cobblestone', 'Icebox', 'Breeze', 'Fracture', 'Pearl', 'Lotus', 'Sunset', 'Abyss'];
+        
+        // Find the first valid map name in the text
+        for (const word of mapWords) {
+          const cleanWord = word.replace(/[^\w]/g, '');
+          const foundMap = validMaps.find(map => map.toLowerCase() === cleanWord.toLowerCase());
+          if (foundMap) {
+            mapName = foundMap;
+            break;
+          }
+        }
+        
+        // If no valid map found but we have text, take the first meaningful word
+        if (!validMaps.some(map => map.toLowerCase() === mapName.toLowerCase()) && mapWords.length > 0) {
+          mapName = mapWords[0].replace(/[^\w]/g, '');
+        }
+      }
 
       // Extract map scores
       const scoreElements = $map.find('.score, .vm-stats-game-header-score, [class*="score"]').toArray();

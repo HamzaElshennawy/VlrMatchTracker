@@ -10,7 +10,8 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const db = new DatabaseService();
-    const matchId = parseInt(params.id);
+    const resolvedParams = await params;
+    const matchId = parseInt(resolvedParams.id);
 
     if (isNaN(matchId)) {
       return NextResponse.json({
