@@ -391,6 +391,83 @@ export class DatabaseService {
     `).all(limit) as ScrapingLog[];
   }
 
+  // Clean text content by removing excessive whitespace and VLR artifacts
+  private cleanTextContent(text: string): string {
+    if (!text) return text;
+    
+    // Remove all excessive whitespace, tabs, and newlines
+    let cleaned = text.replace(/[\t\n\r\s]+/g, ' ').trim();
+    
+    // Remove common VLR.gg artifacts and formatting
+    cleaned = cleaned.replace(/\b(PICK|BAN|DECIDER)\b/gi, '').trim();
+    
+    // Remove timestamps (patterns like "16:30", "47:21", etc.)
+    cleaned = cleaned.replace(/\b\d{1,2}:\d{2}\b/g, '').trim();
+    
+    // Clean up any double spaces that might remain
+    cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+    
+    return cleaned;
+  }
+
+  // Clean up existing database records with formatting issues
+  cleanExistingData(): { tournamentsUpdated: number; teamsUpdated: number } {
+    console.log('Cleaning existing database records...');
+    
+    // Clean tournament names
+    const tournaments = this.db.prepare('SELECT id, name FROM tournaments').all() as { id: number; name: string }[];
+    let tournamentsUpdated = 0;
+    
+    const updateTournament = this.db.prepare('UPDATE tournaments SET name = ? WHERE id = ?');
+    const checkExisting = this.db.prepare('SELECT COUNT(*) as count FROM tournaments WHERE name = ? AND id != ?');
+    
+    for (const tournament of tournaments) {
+      const cleanedName = this.cleanTextContent(tournament.name);
+      if (cleanedName !== tournament.name) {
+        // Check if cleaned name would conflict with existing tournament
+        const existing = checkExisting.get(cleanedName, tournament.id) as { count: number };
+        if (existing.count === 0) {
+          try {
+            updateTournament.run(cleanedName, tournament.id);
+            tournamentsUpdated++;
+          } catch (error) {
+            console.log(`Skipping tournament ${tournament.id} due to constraint: ${error}`);
+          }
+        } else {
+          console.log(`Skipping tournament ${tournament.id} - cleaned name would conflict`);
+        }
+      }
+    }
+    
+    // Clean team names  
+    const teams = this.db.prepare('SELECT id, name FROM teams').all() as { id: number; name: string }[];
+    let teamsUpdated = 0;
+    
+    const updateTeam = this.db.prepare('UPDATE teams SET name = ? WHERE id = ?');
+    const checkExistingTeam = this.db.prepare('SELECT COUNT(*) as count FROM teams WHERE name = ? AND id != ?');
+    
+    for (const team of teams) {
+      const cleanedName = this.cleanTextContent(team.name);
+      if (cleanedName !== team.name) {
+        // Check if cleaned name would conflict with existing team
+        const existing = checkExistingTeam.get(cleanedName, team.id) as { count: number };
+        if (existing.count === 0) {
+          try {
+            updateTeam.run(cleanedName, team.id);
+            teamsUpdated++;
+          } catch (error) {
+            console.log(`Skipping team ${team.id} due to constraint: ${error}`);
+          }
+        } else {
+          console.log(`Skipping team ${team.id} - cleaned name would conflict`);
+        }
+      }
+    }
+    
+    console.log(`Cleaned ${tournamentsUpdated} tournaments and ${teamsUpdated} teams`);
+    return { tournamentsUpdated, teamsUpdated };
+  }
+
   // Get database statistics
   getStats() {
     const matchCount = this.db.prepare('SELECT COUNT(*) as count FROM matches').get() as { count: number };

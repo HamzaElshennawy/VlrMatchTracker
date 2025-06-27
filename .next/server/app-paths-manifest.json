@@ -1,6 +1,3 @@
 {
-  "/api/matches/upcoming/route": "app/api/matches/upcoming/route.js",
-  "/api/matches/results/route": "app/api/matches/results/route.js",
-  "/api/scrape/route": "app/api/scrape/route.js",
-  "/api/match/[id]/route": "app/api/match/[id]/route.js"
+  "/api/matches/route": "app/api/matches/route.js"
 }

@@ -4,26 +4,6 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/api/matches/route.js"
-    ],
-    "/api/matches/upcoming/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/matches/upcoming/route.js"
-    ],
-    "/api/matches/results/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/matches/results/route.js"
-    ],
-    "/api/scrape/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/scrape/route.js"
-    ],
-    "/api/match/[id]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/match/[id]/route.js"
     ]
   }
 }

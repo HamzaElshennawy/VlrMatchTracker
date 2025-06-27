@@ -38,6 +38,24 @@ export class VLRScraper {
     }
   }
 
+  private cleanTextContent(text: string): string {
+    if (!text) return text;
+    
+    // Remove all excessive whitespace, tabs, and newlines
+    let cleaned = text.replace(/[\t\n\r\s]+/g, ' ').trim();
+    
+    // Remove common VLR.gg artifacts and formatting
+    cleaned = cleaned.replace(/\b(PICK|BAN|DECIDER)\b/gi, '').trim();
+    
+    // Remove timestamps (patterns like "16:30", "47:21", etc.)
+    cleaned = cleaned.replace(/\b\d{1,2}:\d{2}\b/g, '').trim();
+    
+    // Clean up any double spaces that might remain
+    cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+    
+    return cleaned;
+  }
+
   private parseTimeString(timeStr: string): string | undefined {
     if (!timeStr) return undefined;
 
@@ -171,11 +189,13 @@ export class VLRScraper {
 
       // Extract tournament info
       const tournamentElement = $container.find('.match-item-event, .event, [class*="event"], .tournament').first();
-      const tournamentName = tournamentElement.text().trim() || 'Unknown Tournament';
+      const rawTournamentName = tournamentElement.text().trim() || 'Unknown Tournament';
+      const tournamentName = this.cleanTextContent(rawTournamentName);
 
       // Extract stage/series info
       const stageElement = $container.find('.match-item-event-series, .series, [class*="series"]').first();
-      const stage = stageElement.text().trim();
+      const rawStage = stageElement.text().trim();
+      const stage = this.cleanTextContent(rawStage);
 
       // Extract time
       const timeElement = $container.find('.match-item-time, .time').first();
