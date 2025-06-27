@@ -130,4 +130,7 @@ export interface MatchDetailScrapeData {
   player_stats?: PlayerStats[];
   vod_url?: string;
   stats_url?: string;
+  team1_logo_url?: string;
+  team2_logo_url?: string;
+  tournament_logo_url?: string;
 }

@@ -146,23 +146,29 @@ export class VLRScraper {
       const vlrMatchId = this.extractMatchIdFromUrl(fullMatchUrl);
       if (!vlrMatchId) return null;
 
-      // Extract team names
-      const teamElements = $container.find('.match-item-vs-team-name, .team-name, .text-of').toArray();
+      // Extract team names and logos
+      const teamElements = $container.find('.match-item-vs-team-name .text-of').toArray();
+      
       let team1Name = '';
       let team2Name = '';
+      let team1LogoUrl = '';
+      let team2LogoUrl = '';
 
       if (teamElements.length >= 2) {
         team1Name = $(teamElements[0]).text().trim();
         team2Name = $(teamElements[1]).text().trim();
       } else {
         // Alternative selectors for team names
-        const allTeamText = $container.find('[class*="team"], [class*="vs"]').map((i, el) => $(el).text().trim()).get();
+        const allTeamText = $container.find('.match-item-vs-team .text-of, [class*="team"]').map((i, el) => $(el).text().trim()).get();
         const validTeams = allTeamText.filter(text => text && text !== 'vs' && text !== '–' && text !== '-');
         if (validTeams.length >= 2) {
           team1Name = validTeams[0];
           team2Name = validTeams[1];
         }
       }
+
+      // Note: Team logos are not available in match list view on VLR.gg
+      // They only show country flags. Team logos would need to be scraped from team pages separately.
 
       // Extract scores
       const scoreElements = $container.find('.match-item-vs-team-score, .score, [class*="score"]').toArray();
@@ -187,10 +193,26 @@ export class VLRScraper {
         status = 'completed';
       }
 
-      // Extract tournament info
+      // Extract tournament info and logo
       const tournamentElement = $container.find('.match-item-event, .event, [class*="event"], .tournament').first();
       const rawTournamentName = tournamentElement.text().trim() || 'Unknown Tournament';
       const tournamentName = this.cleanTextContent(rawTournamentName);
+      
+      // Extract tournament logo from match-item-icon
+      const tournamentLogo = $container.find('.match-item-icon img').first();
+      const tournamentLogoSrc = tournamentLogo.attr('src');
+      let tournamentLogoUrl = '';
+      
+      if (tournamentLogoSrc) {
+        // Handle different URL formats from VLR.gg
+        if (tournamentLogoSrc.startsWith('//')) {
+          tournamentLogoUrl = `https:${tournamentLogoSrc}`;
+        } else if (tournamentLogoSrc.startsWith('http')) {
+          tournamentLogoUrl = tournamentLogoSrc;
+        } else if (tournamentLogoSrc.startsWith('/')) {
+          tournamentLogoUrl = `${this.baseUrl}${tournamentLogoSrc}`;
+        }
+      }
 
       // Extract stage/series info
       const stageElement = $container.find('.match-item-event-series, .series, [class*="series"]').first();
@@ -222,7 +244,10 @@ export class VLRScraper {
         match_time: matchTime,
         match_format: matchFormat,
         stage: stage || undefined,
-        match_url: fullMatchUrl
+        match_url: fullMatchUrl,
+        team1_logo_url: team1LogoUrl || undefined,
+        team2_logo_url: team2LogoUrl || undefined,
+        tournament_logo_url: tournamentLogoUrl || undefined
       };
 
     } catch (error) {

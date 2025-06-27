@@ -98,6 +98,34 @@ export class DatabaseService {
     const existing = this.db.prepare('SELECT * FROM teams WHERE name = ?').get(name) as Team | undefined;
     
     if (existing) {
+      // Update logo URLs if they are provided and the existing record doesn't have them
+      let needsUpdate = false;
+      const updates: string[] = [];
+      const values: any[] = [];
+
+      if (logoUrl && !existing.logo_url) {
+        updates.push('logo_url = ?');
+        values.push(logoUrl);
+        needsUpdate = true;
+      }
+      
+      if (flagUrl && !existing.flag_url) {
+        updates.push('flag_url = ?');
+        values.push(flagUrl);
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        values.push(existing.id);
+        this.db.prepare(`UPDATE teams SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+        
+        return {
+          ...existing,
+          logo_url: logoUrl || existing.logo_url,
+          flag_url: flagUrl || existing.flag_url
+        };
+      }
+      
       return existing;
     }
 
@@ -126,6 +154,16 @@ export class DatabaseService {
     const existing = this.db.prepare('SELECT * FROM tournaments WHERE name = ?').get(name) as Tournament | undefined;
     
     if (existing) {
+      // Update logo URL if it's provided and the existing record doesn't have one
+      if (logoUrl && !existing.logo_url) {
+        this.db.prepare('UPDATE tournaments SET logo_url = ? WHERE id = ?').run(logoUrl, existing.id);
+        
+        return {
+          ...existing,
+          logo_url: logoUrl
+        };
+      }
+      
       return existing;
     }
 
@@ -152,13 +190,13 @@ export class DatabaseService {
       let tournament: Tournament | undefined;
 
       if (matchData.team1_name) {
-        team1 = this.getOrCreateTeam(matchData.team1_name);
+        team1 = this.getOrCreateTeam(matchData.team1_name, undefined, matchData.team1_logo_url);
       }
       if (matchData.team2_name) {
-        team2 = this.getOrCreateTeam(matchData.team2_name);
+        team2 = this.getOrCreateTeam(matchData.team2_name, undefined, matchData.team2_logo_url);
       }
       if (matchData.tournament_name) {
-        tournament = this.getOrCreateTournament(matchData.tournament_name);
+        tournament = this.getOrCreateTournament(matchData.tournament_name, matchData.tournament_logo_url);
       }
 
       // Check if match exists
