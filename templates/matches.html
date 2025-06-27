@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Matches - VLR.gg Scraper</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-gamepad me-2"></i>
+                VLR.gg Scraper
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/matches">All Matches</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="row align-items-center">
+                            <div class="col">
+                                <h5 class="mb-0">All Matches</h5>
+                            </div>
+                            <div class="col-auto">
+                                <!-- Filter Buttons -->
+                                <div class="btn-group" role="group">
+                                    <a href="/matches?status=all" 
+                                       class="btn btn-sm {{ 'btn-primary' if status_filter == 'all' else 'btn-outline-primary' }}">
+                                        All
+                                    </a>
+                                    <a href="/matches?status=live" 
+                                       class="btn btn-sm {{ 'btn-danger' if status_filter == 'live' else 'btn-outline-danger' }}">
+                                        Live
+                                    </a>
+                                    <a href="/matches?status=upcoming" 
+                                       class="btn btn-sm {{ 'btn-warning' if status_filter == 'upcoming' else 'btn-outline-warning' }}">
+                                        Upcoming
+                                    </a>
+                                    <a href="/matches?status=completed" 
+                                       class="btn btn-sm {{ 'btn-success' if status_filter == 'completed' else 'btn-outline-success' }}">
+                                        Completed
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        {% if matches.items %}
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Teams</th>
+                                            <th>Score</th>
+                                            <th>Tournament</th>
+                                            <th>Stage</th>
+                                            <th>Format</th>
+                                            <th>Status</th>
+                                            <th>Time</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for match in matches.items %}
+                                        <tr>
+                                            <td>
+                                                <div class="match-teams">
+                                                    <div class="team">
+                                                        <span class="fw-bold">
+                                                            {{ match.team1.name if match.team1 else 'TBD' }}
+                                                        </span>
+                                                    </div>
+                                                    <div class="vs-divider text-muted">vs</div>
+                                                    <div class="team">
+                                                        <span class="fw-bold">
+                                                            {{ match.team2.name if match.team2 else 'TBD' }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-primary fs-6">
+                                                    {{ match.team1_score }} - {{ match.team2_score }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="tournament-info">
+                                                    <div class="fw-bold">
+                                                        {{ match.tournament.name if match.tournament else 'Unknown Tournament' }}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ match.stage or '–' }}</small>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">{{ match.match_format or 'Bo3' }}</span>
+                                            </td>
+                                            <td>
+                                                {% if match.status == 'live' %}
+                                                    <span class="badge bg-danger">
+                                                        <i class="fas fa-circle fa-xs me-1"></i>LIVE
+                                                    </span>
+                                                {% elif match.status == 'upcoming' %}
+                                                    <span class="badge bg-warning">
+                                                        <i class="fas fa-clock fa-xs me-1"></i>Upcoming
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-success">
+                                                        <i class="fas fa-check-circle fa-xs me-1"></i>Completed
+                                                    </span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if match.match_time %}
+                                                    <div class="match-time">
+                                                        <div>{{ match.match_time.strftime('%m/%d/%Y') }}</div>
+                                                        <small class="text-muted">{{ match.match_time.strftime('%H:%M UTC') }}</small>
+                                                    </div>
+                                                {% else %}
+                                                    <small class="text-muted">TBD</small>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <div class="btn-group btn-group-sm">
+                                                    <a href="/match/{{ match.id }}" class="btn btn-outline-primary">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    {% if match.match_url %}
+                                                        <a href="{{ match.match_url }}" target="_blank" class="btn btn-outline-secondary">
+                                                            <i class="fas fa-external-link-alt"></i>
+                                                        </a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Pagination -->
+                            {% if matches.pages > 1 %}
+                                <nav aria-label="Page navigation">
+                                    <ul class="pagination justify-content-center">
+                                        {% if matches.has_prev %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('matches', status=status_filter, page=matches.prev_num) }}">
+                                                    <i class="fas fa-chevron-left"></i>
+                                                </a>
+                                            </li>
+                                        {% endif %}
+
+                                        {% for page_num in matches.iter_pages() %}
+                                            {% if page_num %}
+                                                {% if page_num != matches.page %}
+                                                    <li class="page-item">
+                                                        <a class="page-link" href="{{ url_for('matches', status=status_filter, page=page_num) }}">
+                                                            {{ page_num }}
+                                                        </a>
+                                                    </li>
+                                                {% else %}
+                                                    <li class="page-item active">
+                                                        <span class="page-link">{{ page_num }}</span>
+                                                    </li>
+                                                {% endif %}
+                                            {% else %}
+                                                <li class="page-item disabled">
+                                                    <span class="page-link">…</span>
+                                                </li>
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        {% if matches.has_next %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('matches', status=status_filter, page=matches.next_num) }}">
+                                                    <i class="fas fa-chevron-right"></i>
+                                                </a>
+                                            </li>
+                                        {% endif %}
+                                    </ul>
+                                </nav>
+                            {% endif %}
+
+                        {% else %}
+                            <div class="text-center py-5">
+                                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                                <h5>No matches found</h5>
+                                <p class="text-muted">
+                                    {% if status_filter != 'all' %}
+                                        No {{ status_filter }} matches found. Try a different filter.
+                                    {% else %}
+                                        No matches available. The scraper may need to run to collect data.
+                                    {% endif %}
+                                </p>
+                                <a href="/" class="btn btn-primary">Back to Dashboard</a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
