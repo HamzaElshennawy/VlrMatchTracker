@@ -1,6 +1,0 @@
-{
-  "/api/match/[id]/route": "app/api/match/[id]/route.js",
-  "/api/matches/live/route": "app/api/matches/live/route.js",
-  "/api/matches/route": "app/api/matches/route.js",
-  "/page": "app/page.js"
-}
