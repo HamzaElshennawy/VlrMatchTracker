@@ -183,6 +183,245 @@ export class DatabaseService {
 
   // Match operations
   saveMatch(matchData: MatchDetailScrapeData): Match {
+  // Team operations with isNew flag
+  getOrCreateTeamWithFlag(name: string, flagUrl?: string, logoUrl?: string): { team: Team, isNew: boolean } {
+    if (!name || name.toLowerCase() === 'tbd' || name === '–' || name === '-') {
+      throw new Error('Invalid team name');
+    }
+
+    // Try to find existing team
+    const existing = this.db.prepare('SELECT * FROM teams WHERE name = ?').get(name) as Team | undefined;
+    
+    if (existing) {
+      // Update logo URLs if they are provided and the existing record doesn't have them
+      let needsUpdate = false;
+      const updates: string[] = [];
+      const values: any[] = [];
+
+      if (logoUrl && !existing.logo_url) {
+        updates.push('logo_url = ?');
+        values.push(logoUrl);
+        needsUpdate = true;
+      }
+      
+      if (flagUrl && !existing.flag_url) {
+        updates.push('flag_url = ?');
+        values.push(flagUrl);
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        values.push(existing.id);
+        this.db.prepare(`UPDATE teams SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+        
+        return {
+          team: {
+            ...existing,
+            logo_url: logoUrl || existing.logo_url,
+            flag_url: flagUrl || existing.flag_url
+          },
+          isNew: false
+        };
+      }
+      
+      return { team: existing, isNew: false };
+    }
+
+    // Create new team
+    const result = this.db.prepare(`
+      INSERT INTO teams (name, flag_url, logo_url)
+      VALUES (?, ?, ?)
+    `).run(name, flagUrl, logoUrl);
+
+    return {
+      team: {
+        id: result.lastInsertRowid as number,
+        name,
+        flag_url: flagUrl,
+        logo_url: logoUrl,
+        created_at: new Date().toISOString()
+      },
+      isNew: true
+    };
+  }
+
+  // Tournament operations with isNew flag
+  getOrCreateTournamentWithFlag(name: string, logoUrl?: string): { tournament: Tournament, isNew: boolean } {
+    if (!name) {
+      throw new Error('Invalid tournament name');
+    }
+
+    // Try to find existing tournament
+    const existing = this.db.prepare('SELECT * FROM tournaments WHERE name = ?').get(name) as Tournament | undefined;
+    
+    if (existing) {
+      // Update logo URL if it's provided and the existing record doesn't have one
+      if (logoUrl && !existing.logo_url) {
+        this.db.prepare('UPDATE tournaments SET logo_url = ? WHERE id = ?').run(logoUrl, existing.id);
+        
+        return {
+          tournament: {
+            ...existing,
+            logo_url: logoUrl
+          },
+          isNew: false
+        };
+      }
+      
+      return { tournament: existing, isNew: false };
+    }
+
+    // Create new tournament
+    const result = this.db.prepare(`
+      INSERT INTO tournaments (name, logo_url)
+      VALUES (?, ?)
+    `).run(name, logoUrl);
+
+    return {
+      tournament: {
+        id: result.lastInsertRowid as number,
+        name,
+        logo_url: logoUrl,
+        created_at: new Date().toISOString()
+      },
+      isNew: true
+    };
+  }
+
+  // Match operations with detailed response
+  saveMatchWithDetails(matchData: MatchDetailScrapeData): { match: Match, isNew: boolean, newTeamsCreated: number, newTournamentsCreated: number } {
+    const transaction = this.db.transaction(() => {
+      let newTeamsCreated = 0;
+      let newTournamentsCreated = 0;
+      let team1: Team | undefined;
+      let team2: Team | undefined;
+      let tournament: Tournament | undefined;
+
+      if (matchData.team1_name) {
+        const result = this.getOrCreateTeamWithFlag(matchData.team1_name, undefined, matchData.team1_logo_url);
+        team1 = result.team;
+        if (result.isNew) newTeamsCreated++;
+      }
+      if (matchData.team2_name) {
+        const result = this.getOrCreateTeamWithFlag(matchData.team2_name, undefined, matchData.team2_logo_url);
+        team2 = result.team;
+        if (result.isNew) newTeamsCreated++;
+      }
+      if (matchData.tournament_name) {
+        const result = this.getOrCreateTournamentWithFlag(matchData.tournament_name, matchData.tournament_logo_url);
+        tournament = result.tournament;
+        if (result.isNew) newTournamentsCreated++;
+      }
+
+      // Check if match exists
+      const existing = this.db.prepare('SELECT * FROM matches WHERE vlr_match_id = ?').get(matchData.vlr_match_id) as Match | undefined;
+
+      const now = new Date().toISOString();
+
+      if (existing) {
+        // Update existing match
+        this.db.prepare(`
+          UPDATE matches SET
+            team1_id = ?,
+            team2_id = ?,
+            tournament_id = ?,
+            status = ?,
+            match_time = ?,
+            match_format = ?,
+            stage = ?,
+            team1_score = ?,
+            team2_score = ?,
+            match_url = ?,
+            vod_url = ?,
+            stats_url = ?,
+            maps_data = ?,
+            player_stats = ?,
+            updated_at = ?
+          WHERE vlr_match_id = ?
+        `).run(
+          team1?.id,
+          team2?.id,
+          tournament?.id,
+          matchData.status,
+          matchData.match_time,
+          matchData.match_format,
+          matchData.stage,
+          matchData.team1_score,
+          matchData.team2_score,
+          matchData.match_url,
+          matchData.vod_url,
+          matchData.stats_url,
+          matchData.maps_data ? JSON.stringify(matchData.maps_data) : null,
+          matchData.player_stats ? JSON.stringify(matchData.player_stats) : null,
+          now,
+          matchData.vlr_match_id
+        );
+
+        return { 
+          match: { ...existing, updated_at: now },
+          isNew: false,
+          newTeamsCreated,
+          newTournamentsCreated
+        };
+      } else {
+        // Create new match
+        const result = this.db.prepare(`
+          INSERT INTO matches (
+            vlr_match_id, team1_id, team2_id, tournament_id, status,
+            match_time, match_format, stage, team1_score, team2_score,
+            match_url, vod_url, stats_url, maps_data, player_stats
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          matchData.vlr_match_id,
+          team1?.id,
+          team2?.id,
+          tournament?.id,
+          matchData.status,
+          matchData.match_time,
+          matchData.match_format,
+          matchData.stage,
+          matchData.team1_score,
+          matchData.team2_score,
+          matchData.match_url,
+          matchData.vod_url,
+          matchData.stats_url,
+          matchData.maps_data ? JSON.stringify(matchData.maps_data) : null,
+          matchData.player_stats ? JSON.stringify(matchData.player_stats) : null
+        );
+
+        return {
+          match: {
+            id: result.lastInsertRowid as number,
+            vlr_match_id: matchData.vlr_match_id,
+            team1_id: team1?.id,
+            team2_id: team2?.id,
+            tournament_id: tournament?.id,
+            status: matchData.status,
+            match_time: matchData.match_time,
+            match_format: matchData.match_format,
+            stage: matchData.stage,
+            team1_score: matchData.team1_score,
+            team2_score: matchData.team2_score,
+            match_url: matchData.match_url,
+            vod_url: matchData.vod_url,
+            stats_url: matchData.stats_url,
+            maps_data: matchData.maps_data,
+            player_stats: matchData.player_stats,
+            created_at: now,
+            updated_at: now
+          },
+          isNew: true,
+          newTeamsCreated,
+          newTournamentsCreated
+        };
+      }
+    });
+
+    return transaction();
+  }
+
+  // Keep original saveMatch method for backward compatibility
+  saveMatch(matchData: MatchDetailScrapeData): Match {
     const transaction = this.db.transaction(() => {
       // Get or create teams and tournament
       let team1: Team | undefined;
