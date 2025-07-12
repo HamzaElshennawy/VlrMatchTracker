@@ -1,52 +1,70 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { VLRScraper } from '@/lib/scraper';
-import { DatabaseService } from '@/lib/database';
-import { ApiResponse, ScrapeResponse } from '@/types';
+import { ApiResponse, ScrapeResponse, MatchDetailScrapeData } from '@/types';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    console.log('Starting manual scraping process...');
-    
-    // Check if request includes cleaning option
-    let cleanExisting = false;
-    try {
-      const body = await request.json();
-      cleanExisting = body.cleanExisting === true;
-    } catch {
-      // Ignore JSON parsing errors, use defaults
-    }
-    
-    // Clean existing data if requested
-    let cleaningResults = null;
-    if (cleanExisting) {
-      console.log('Cleaning existing database records...');
-      const db = new DatabaseService();
-      cleaningResults = db.cleanExistingData();
-    }
+    console.log('Starting real-time scraping process...');
     
     const scraper = new VLRScraper();
-    const result = await scraper.scrapeAllMatches();
-
-    let message = result.success 
-      ? `Successfully scraped ${result.matches_scraped} new matches and updated ${result.matches_updated} existing matches`
-      : 'Scraping completed with errors';
+    const searchParams = request.nextUrl.searchParams;
     
-    if (cleaningResults) {
-      message += `. Cleaned ${cleaningResults.tournamentsUpdated} tournaments and ${cleaningResults.teamsUpdated} teams`;
+    const scrapeType = searchParams.get('type') || 'all';
+    let result: ScrapeResponse | { matches: MatchDetailScrapeData[], scraped_at: string };
+
+    switch (scrapeType) {
+      case 'all':
+        result = await scraper.scrapeAllMatches();
+        break;
+      
+      case 'upcoming':
+        const upcomingMatches = await scraper.scrapeMatchesList('upcoming');
+        result = {
+          matches: upcomingMatches,
+          scraped_at: new Date().toISOString()
+        };
+        break;
+      
+      case 'live':
+        const liveMatches = await scraper.scrapeMatchesList('');
+        const liveOnly = liveMatches.filter(match => match.status === 'live');
+        result = {
+          matches: liveOnly,
+          scraped_at: new Date().toISOString()
+        };
+        break;
+      
+      case 'results':
+        const completedMatches = await scraper.scrapeMatchesList('results');
+        result = {
+          matches: completedMatches,
+          scraped_at: new Date().toISOString()
+        };
+        break;
+      
+      default:
+        return NextResponse.json({
+          success: false,
+          error: 'Invalid scrape type. Use: all, upcoming, live, or results'
+        } as ApiResponse<null>, { status: 400 });
     }
 
+    const message = 'success' in result && result.success
+      ? `Successfully scraped real-time data from VLR.gg`
+      : 'Real-time scraping completed';
+
     return NextResponse.json({
-      success: result.success,
-      data: { ...result, cleaningResults },
+      success: true,
+      data: result,
       message
-    } as ApiResponse<ScrapeResponse>);
+    } as ApiResponse<ScrapeResponse | { matches: MatchDetailScrapeData[], scraped_at: string }>);
 
   } catch (error) {
-    console.error('Error during manual scraping:', error);
+    console.error('Error during real-time scraping:', error);
     
     return NextResponse.json({
       success: false,
-      error: 'Failed to complete scraping process',
+      error: 'Failed to complete real-time scraping from VLR.gg',
       message: String(error)
     } as ApiResponse<null>, { status: 500 });
   }

@@ -25,14 +25,15 @@ export interface MapData {
 
 export interface RoundData {
   round_number: number;
-  winner: 'team1' | 'team2';
-  round_type: 'pistol' | 'eco' | 'force_buy' | 'full_buy';
+  winner: "team1" | "team2";
+  round_type: "pistol" | "eco" | "force_buy" | "full_buy";
+  win_method: "elimination" | "bomb" | "time"; // <-- Add this
   elimination_order?: PlayerElimination[];
 }
 
 export interface PlayerElimination {
   player_name: string;
-  team: 'team1' | 'team2';
+  team: "team1" | "team2";
   eliminated_by: string;
   weapon: string;
   headshot: boolean;
@@ -40,7 +41,7 @@ export interface PlayerElimination {
 
 export interface PlayerStats {
   player_name: string;
-  team: 'team1' | 'team2';
+  team: "team1" | "team2";
   agent: string;
   kills: number;
   deaths: number;
@@ -60,9 +61,9 @@ export interface Match {
   team1_id?: number;
   team2_id?: number;
   tournament_id?: number;
-  status: 'upcoming' | 'live' | 'completed';
+  status: "upcoming" | "live" | "completed";
   match_time?: string;
-  match_format: 'Bo1' | 'Bo3' | 'Bo5';
+  match_format: "Bo1" | "Bo3" | "Bo5";
   stage?: string;
   team1_score: number;
   team2_score: number;
@@ -81,9 +82,9 @@ export interface Match {
 
 export interface ScrapingLog {
   id: number;
-  scrape_type: 'matches_list' | 'match_detail' | 'full_scrape';
+  scrape_type: "matches_list" | "match_detail" | "full_scrape";
   url: string;
-  status: 'success' | 'error' | 'in_progress';
+  status: "success" | "error" | "in_progress";
   error_message?: string;
   matches_found: number;
   created_at: string;
@@ -121,7 +122,7 @@ export interface MatchDetailScrapeData {
   team1_score: number;
   team2_score: number;
   tournament_name?: string;
-  status: 'upcoming' | 'live' | 'completed';
+  status: "upcoming" | "live" | "completed";
   match_time?: string;
   match_format: string;
   stage?: string;

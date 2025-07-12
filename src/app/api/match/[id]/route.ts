@@ -1,60 +1,54 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { DatabaseService } from '@/lib/database';
-import { VLRScraper } from '@/lib/scraper';
-import { ApiResponse, Match } from '@/types';
+import { NextRequest, NextResponse } from "next/server";
+import { VLRScraper } from "@/lib/scraper";
+import { ApiResponse, MatchDetailScrapeData } from "@/types";
 
 interface RouteParams {
-  params: { id: string }
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const db = new DatabaseService();
+    const scraper = new VLRScraper();
     const resolvedParams = await params;
-    const matchId = parseInt(resolvedParams.id);
+    const vlrMatchId = resolvedParams.id;
 
-    if (isNaN(matchId)) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid match ID'
-      } as ApiResponse<null>, { status: 400 });
+    if (!vlrMatchId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid VLR match ID",
+        } as ApiResponse<null>,
+        { status: 400 }
+      );
     }
 
-    let match = db.getMatch(matchId);
-
-    if (!match) {
-      return NextResponse.json({
-        success: false,
-        error: 'Match not found'
-      } as ApiResponse<null>, { status: 404 });
-    }
-
-    // If detailed data is missing, try to scrape it
-    if (!match.maps_data || !match.player_stats) {
-      try {
-        const scraper = new VLRScraper();
-        const detailedData = await scraper.scrapeMatchDetails(match.vlr_match_id);
-        
-        if (detailedData) {
-          db.saveMatch(detailedData);
-          match = db.getMatch(matchId); // Refresh the match data
-        }
-      } catch (error) {
-        console.error('Error scraping match details:', error);
-        // Continue with existing data even if scraping fails
-      }
+    // Always get detailed match data
+    const detailedData = await scraper.scrapeMatchDetails(vlrMatchId);
+    if (!detailedData) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Match not found or details unavailable on VLR.gg",
+        } as ApiResponse<null>,
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      data: match
-    } as ApiResponse<Match>);
-
+      data: {
+        ...detailedData,
+        scraped_at: new Date().toISOString(),
+      },
+    } as ApiResponse<MatchDetailScrapeData & { scraped_at: string }>);
   } catch (error) {
-    console.error('Error fetching match details:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to fetch match details'
-    } as ApiResponse<null>, { status: 500 });
+    console.error("Error scraping match details:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to scrape match details from VLR.gg",
+      } as ApiResponse<null>,
+      { status: 500 }
+    );
   }
 }

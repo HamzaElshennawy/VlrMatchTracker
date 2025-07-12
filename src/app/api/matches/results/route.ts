@@ -1,36 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DatabaseService } from '@/lib/database';
-import { ApiResponse, MatchListResponse } from '@/types';
+import { VLRScraper } from '@/lib/scraper';
+import { ApiResponse, MatchDetailScrapeData } from '@/types';
+
+interface RealtimeMatchListResponse {
+  matches: MatchDetailScrapeData[];
+  total: number;
+  page: number;
+  per_page: number;
+  scraped_at: string;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const db = new DatabaseService();
+    const scraper = new VLRScraper();
     const searchParams = request.nextUrl.searchParams;
     
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = (page - 1) * limit;
 
-    const result = db.getMatches('completed', limit, offset);
+    const completedMatches = await scraper.scrapeMatchesList('results');
+    const completedOnly = completedMatches.filter(match => match.status === 'completed');
     
-    const response: MatchListResponse = {
-      matches: result.matches,
-      total: result.total,
+    const total = completedOnly.length;
+    const offset = (page - 1) * limit;
+    const paginatedMatches = completedOnly.slice(offset, offset + limit);
+    
+    const response: RealtimeMatchListResponse = {
+      matches: paginatedMatches,
+      total,
       page,
       per_page: limit,
-      has_next: offset + limit < result.total
+      scraped_at: new Date().toISOString()
     };
 
     return NextResponse.json({
       success: true,
       data: response
-    } as ApiResponse<MatchListResponse>);
+    } as ApiResponse<RealtimeMatchListResponse>);
 
   } catch (error) {
-    console.error('Error fetching completed matches:', error);
+    console.error('Error scraping completed matches:', error);
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch completed matches'
+      error: 'Failed to scrape completed matches from VLR.gg'
     } as ApiResponse<null>, { status: 500 });
   }
 }
