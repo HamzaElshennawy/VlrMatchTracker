@@ -183,6 +183,7 @@ export class DatabaseService {
 
   // Match operations
   saveMatch(matchData: MatchDetailScrapeData): Match {
+  }
   // Team operations with isNew flag
   getOrCreateTeamWithFlag(name: string, flagUrl?: string, logoUrl?: string): { team: Team, isNew: boolean } {
     if (!name || name.toLowerCase() === 'tbd' || name === '–' || name === '-') {
