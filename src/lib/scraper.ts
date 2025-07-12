@@ -291,168 +291,382 @@ export class VLRScraper {
   ): Promise<MatchDetailScrapeData | null> {
     try {
       const url = `${this.baseUrl}/match/${vlrMatchId}`;
+      console.log(`Scraping match details from: ${url}`);
       const $ = await this.makeRequest(url);
       if (!$) return null;
 
-      // Extract match details (teams, score, etc.)
-      const team1Element = $(".match-header-vs-team").first();
-      const team2Element = $(".match-header-vs-team").last();
+      // Extract team information with multiple fallback selectors
+      let team1Name = "";
+      let team2Name = "";
+      let team1LogoUrl = "";
+      let team2LogoUrl = "";
 
-      const team1Name = team1Element.find(".text-of").text().trim();
-      const team2Name = team2Element.find(".text-of").text().trim();
+      // Try multiple selectors for team names
+      const teamElements = $(".match-header-vs-team").toArray();
+      if (teamElements.length >= 2) {
+        team1Name = $(teamElements[0]).find(".text-of, .team-name").text().trim();
+        team2Name = $(teamElements[1]).find(".text-of, .team-name").text().trim();
+        
+        // Extract team logos
+        team1LogoUrl = $(teamElements[0]).find("img").attr("src") || "";
+        team2LogoUrl = $(teamElements[1]).find("img").attr("src") || "";
+        
+        // Fix relative URLs
+        if (team1LogoUrl && !team1LogoUrl.startsWith("http")) {
+          team1LogoUrl = team1LogoUrl.startsWith("//") ? `https:${team1LogoUrl}` : `${this.baseUrl}${team1LogoUrl}`;
+        }
+        if (team2LogoUrl && !team2LogoUrl.startsWith("http")) {
+          team2LogoUrl = team2LogoUrl.startsWith("//") ? `https:${team2LogoUrl}` : `${this.baseUrl}${team2LogoUrl}`;
+        }
+      }
+      
+      // Fallback selectors if primary ones fail
+      if (!team1Name || !team2Name) {
+        const fallbackTeams = $(".team .team-name, .match-team .team-name").map((i, el) => $(el).text().trim()).get();
+        if (fallbackTeams.length >= 2) {
+          team1Name = team1Name || fallbackTeams[0];
+          team2Name = team2Name || fallbackTeams[1];
+        }
+      }
 
       // Extract scores
-      const scoreElements = $(".match-header-vs-score .js-spoiler").toArray();
+      const scoreElements = $(".match-header-vs-score .js-spoiler, .match-header-vs-score .score, .team-score").toArray();
       let team1Score = 0;
       let team2Score = 0;
 
       if (scoreElements.length >= 2) {
         team1Score = parseInt($(scoreElements[0]).text().trim()) || 0;
         team2Score = parseInt($(scoreElements[1]).text().trim()) || 0;
+      } else {
+        // Alternative score extraction
+        const allScores = $(".score, [class*='score']").map((i, el) => {
+          const scoreText = $(el).text().trim();
+          return !isNaN(parseInt(scoreText)) ? parseInt(scoreText) : null;
+        }).get().filter(s => s !== null);
+        
+        if (allScores.length >= 2) {
+          team1Score = allScores[0];
+          team2Score = allScores[1];
+        }
       }
 
-      // Extract tournament info (improved for robustness)
+      // Extract tournament info with multiple selectors
       let tournamentName = "";
-      const tournamentElement = $(
-        ".match-header-event .text-of, .match-header-event"
-      ).first();
-      if (tournamentElement.length) {
-        tournamentName = tournamentElement.text().trim();
+      let tournamentLogoUrl = "";
+      
+      // Try multiple selectors for tournament
+      const tournamentSelectors = [
+        ".match-header-event .text-of",
+        ".match-header-event",
+        ".event-name",
+        ".tournament-name",
+        ".match-header .event"
+      ];
+      
+      for (const selector of tournamentSelectors) {
+        const element = $(selector).first();
+        if (element.length && element.text().trim()) {
+          tournamentName = this.cleanTextContent(element.text().trim());
+          break;
+        }
       }
+      
+      // Extract tournament logo
+      const tournamentLogo = $(".match-header-event img, .event img, .tournament img").first();
+      if (tournamentLogo.length) {
+        tournamentLogoUrl = tournamentLogo.attr("src") || "";
+        if (tournamentLogoUrl && !tournamentLogoUrl.startsWith("http")) {
+          tournamentLogoUrl = tournamentLogoUrl.startsWith("//") ? `https:${tournamentLogoUrl}` : `${this.baseUrl}${tournamentLogoUrl}`;
+        }
+      }
+      
       if (!tournamentName) {
         // Fallback: try to get from page title or other header
-        tournamentName = $("title").text().split("-")[0].trim();
+        const pageTitle = $("title").text();
+        if (pageTitle) {
+          tournamentName = this.cleanTextContent(pageTitle.split("-")[0].trim());
+        }
       }
 
-      // Extract status (improved for live detection)
+      // Extract match time from multiple possible locations
+      let matchTime: string | undefined;
+      const timeSelectors = [
+        ".match-header-date",
+        ".match-time",
+        ".time",
+        "[class*='time']"
+      ];
+      
+      for (const selector of timeSelectors) {
+        const timeElement = $(selector).first();
+        if (timeElement.length) {
+          const timeText = timeElement.text().trim();
+          matchTime = this.parseTimeString(timeText);
+          if (matchTime) break;
+        }
+      }
+
+      // Extract status with improved detection
       let status: "upcoming" | "live" | "completed" = "completed";
-      // Only use .match-header-status for match status
-      const headerStatus = $(".match-header-status").first();
-      const headerStatusText = headerStatus.text().toLowerCase();
-      if (headerStatusText.includes("live")) {
+      
+      // Check multiple status indicators
+      const statusSelectors = [
+        ".match-header-status",
+        ".match-status",
+        ".status",
+        "[class*='status']",
+        "[class*='live']"
+      ];
+      
+      let statusText = "";
+      for (const selector of statusSelectors) {
+        const element = $(selector).first();
+        if (element.length) {
+          statusText = element.text().toLowerCase();
+          break;
+        }
+      }
+      
+      // Determine status based on various indicators
+      if (statusText.includes("live") || $(".live, [class*='live']").length > 0) {
         status = "live";
-      } else if (
-        headerStatusText.includes("final") ||
-        headerStatusText.includes("completed")
-      ) {
+      } else if (statusText.includes("final") || statusText.includes("completed") || (team1Score > 0 || team2Score > 0)) {
         status = "completed";
-      } else if (!headerStatusText && team1Score === 0 && team2Score === 0) {
+      } else if (team1Score === 0 && team2Score === 0) {
         status = "upcoming";
       }
 
       // Extract match format
       let matchFormat = "Bo3";
-      const formatText = $(".match-header-vs-note").text().toLowerCase();
-      if (formatText.includes("bo1")) {
+      const formatSelectors = [
+        ".match-header-vs-note",
+        ".match-format",
+        ".format",
+        ".series-type"
+      ];
+      
+      let formatText = "";
+      for (const selector of formatSelectors) {
+        const element = $(selector).first();
+        if (element.length) {
+          formatText = element.text().toLowerCase();
+          break;
+        }
+      }
+      
+      if (formatText.includes("bo1") || formatText.includes("best of 1")) {
         matchFormat = "Bo1";
-      } else if (formatText.includes("bo5")) {
+      } else if (formatText.includes("bo5") || formatText.includes("best of 5")) {
         matchFormat = "Bo5";
+      } else if (formatText.includes("bo3") || formatText.includes("best of 3")) {
+        matchFormat = "Bo3";
       }
 
       // Extract stage
-      const stageElement = $(".match-header-vs-note");
-      const stage = stageElement.text().trim();
+      let stage = "";
+      const stageSelectors = [
+        ".match-header-vs-note",
+        ".match-stage",
+        ".stage",
+        ".series-info"
+      ];
+      
+      for (const selector of stageSelectors) {
+        const element = $(selector).first();
+        if (element.length) {
+          stage = this.cleanTextContent(element.text().trim());
+          break;
+        }
+      }
 
-      // Extract maps and rounds (include all maps, even if display:none)
-      const maps: any[] = [];
-      // Use .vm-stats-game for completed, .vm-stats-games-container > .vm-stats-game for live, and fallback to .match-header-vs-map for upcoming
-      let mapElems = $(
-        ".vm-stats-game, .vm-stats-games-container > .vm-stats-game, .match-header-vs-map"
-      ).toArray();
-      if (mapElems.length === 0) {
-        // Fallback: try to find any map containers
-        mapElems = $("[class*='map']").toArray();
+      // Extract maps data with comprehensive selectors
+      const maps: MapData[] = [];
+      
+      // Try multiple selectors for map containers
+      const mapSelectors = [
+        ".vm-stats-game",
+        ".vm-stats-games-container > .vm-stats-game", 
+        ".match-header-vs-map",
+        ".map-item",
+        ".game-item",
+        "[class*='map-']"
+      ];
+      
+      let mapElems: cheerio.Element[] = [];
+      for (const selector of mapSelectors) {
+        mapElems = $(selector).toArray();
+        if (mapElems.length > 0) {
+          console.log(`Found ${mapElems.length} maps using selector: ${selector}`);
+          break;
+        }
       }
+      
       if (mapElems.length === 0) {
-        console.warn("No maps found for match", vlrMatchId);
+        console.warn(`No maps found for match ${vlrMatchId}`);
       }
+      
       for (const mapElem of mapElems) {
         const $map = $(mapElem);
-        // Get map name robustly
-        let mapName = $map
-          .find(".map > div > span")
-          .first()
-          .clone()
-          .children()
-          .remove()
-          .end()
-          .text()
-          .trim();
+        
+        // Extract map name with multiple fallbacks
+        let mapName = "";
+        const mapNameSelectors = [
+          ".map > div > span",
+          ".map-name",
+          ".map",
+          ".match-header-vs-map-name",
+          "[class*='map'] span",
+          "[class*='map'] div"
+        ];
+        
+        for (const selector of mapNameSelectors) {
+          const element = $map.find(selector).first();
+          if (element.length) {
+            mapName = element.clone().children().remove().end().text().trim();
+            if (mapName && mapName !== "Unknown Map") break;
+          }
+        }
+        
         if (!mapName) {
-          mapName =
-            $map.find(".map").text().trim() ||
-            $map.find(".match-header-vs-map-name").text().trim() ||
-            $map.find("[class*='map']").text().trim() ||
-            "Unknown Map";
+          mapName = "Unknown Map";
         }
-        // Get team names from .team-name or fallback to match header
-        let teamNames = $map
-          .find(".team-name")
-          .map((_, el) => $(el).text().trim())
-          .get();
-        if (teamNames.length < 2) {
-          teamNames = [team1Name, team2Name];
+        
+        // Extract map scores
+        let mapTeam1Score = 0;
+        let mapTeam2Score = 0;
+        
+        const scoreElems = $map.find(".score, .team-score, [class*='score']").toArray();
+        if (scoreElems.length >= 2) {
+          mapTeam1Score = parseInt($(scoreElems[0]).text().trim()) || 0;
+          mapTeam2Score = parseInt($(scoreElems[1]).text().trim()) || 0;
+        } else {
+          // Alternative score extraction
+          const teamElems = $map.find(".team").toArray();
+          if (teamElems.length >= 2) {
+            mapTeam1Score = parseInt($(teamElems[0]).find(".score, [class*='score']").text().trim()) || 0;
+            mapTeam2Score = parseInt($(teamElems[1]).find(".score, [class*='score']").text().trim()) || 0;
+          }
         }
-        // Get scores from .score (left and right) or fallback to 0
-        let team1Score =
-          parseInt($map.find(".team").first().find(".score").text().trim()) ||
-          0;
-        let team2Score =
-          parseInt($map.find(".team").last().find(".score").text().trim()) || 0;
-        // For upcoming matches, scores may not exist
-        if (isNaN(team1Score)) team1Score = 0;
-        if (isNaN(team2Score)) team2Score = 0;
-        // Extract agent picks (if available)
+        
+        // Extract agent picks
         const agents: string[] = [];
-        $map
-          .find('img[src*="agent"], .agent-icon, [class*="agent"]')
-          .each((_, agentEl) => {
-            const agentSrc = $(agentEl).attr("src") || "";
-            if (agentSrc) {
-              const agentName = agentSrc.split("/").pop()?.split(".")[0] || "";
-              if (agentName) agents.push(agentName);
+        $map.find('img[src*="agent"], .agent-icon, [class*="agent"] img').each((_, agentEl) => {
+          const agentSrc = $(agentEl).attr("src") || "";
+          if (agentSrc) {
+            const agentName = agentSrc.split("/").pop()?.split(".")[0] || "";
+            if (agentName && !agents.includes(agentName)) {
+              agents.push(agentName);
             }
-          });
-        // Extract rounds data from .vlr-rounds-row-col (live and completed)
-        const rounds_data: any[] = [];
-        $map.find(".vlr-rounds-row-col[title]").each((roundIdx, roundEl) => {
+          }
+        });
+        
+        // Extract rounds data
+        const rounds_data: RoundData[] = [];
+        $map.find(".vlr-rounds-row-col[title], .round, [class*='round']").each((roundIdx, roundEl) => {
           const $round = $(roundEl);
           const title = $round.attr("title") || "";
-          // Parse score from title, e.g. "3-2"
+          
+          // Parse round score from title
           const scoreMatch = title.match(/(\d+)[-:](\d+)/);
-          let round_score_team1 = undefined;
-          let round_score_team2 = undefined;
+          let round_score_team1: number | undefined;
+          let round_score_team2: number | undefined;
           if (scoreMatch) {
             round_score_team1 = parseInt(scoreMatch[1]);
             round_score_team2 = parseInt(scoreMatch[2]);
           }
-          // Determine winner from .rnd-sq.mod-win.mod-t or .mod-ct
-          let winner = undefined;
-          if ($round.find(".rnd-sq.mod-win.mod-t").length) winner = "team1";
-          else if ($round.find(".rnd-sq.mod-win.mod-ct").length)
+          
+          // Determine round winner
+          let winner: "team1" | "team2" | undefined;
+          if ($round.find(".rnd-sq.mod-win.mod-t, .round-win.team1").length) {
+            winner = "team1";
+          } else if ($round.find(".rnd-sq.mod-win.mod-ct, .round-win.team2").length) {
             winner = "team2";
-          // Win method from image src
-          let win_method = undefined;
+          }
+          
+          // Determine win method
+          let win_method: "elimination" | "bomb" | "time" | undefined;
           const imgSrc = $round.find(".rnd-sq.mod-win img").attr("src") || "";
-          if (imgSrc.includes("elim")) win_method = "elimination";
-          else if (imgSrc.includes("defuse")) win_method = "bomb";
-          else if (imgSrc.includes("boom")) win_method = "bomb";
+          if (imgSrc.includes("elim") || imgSrc.includes("kill")) {
+            win_method = "elimination";
+          } else if (imgSrc.includes("defuse") || imgSrc.includes("boom") || imgSrc.includes("bomb")) {
+            win_method = "bomb";
+          } else if (imgSrc.includes("time")) {
+            win_method = "time";
+          }
+          
+          // Determine round type (basic heuristic)
+          let round_type: "pistol" | "eco" | "force_buy" | "full_buy" = "full_buy";
+          if (roundIdx === 0 || roundIdx === 12) {
+            round_type = "pistol";
+          }
+          
           rounds_data.push({
             round_number: roundIdx + 1,
             winner,
+            round_type,
             win_method,
-            round_score_team1,
-            round_score_team2,
           });
         });
+        
         maps.push({
           map_name: mapName,
-          team1_score: team1Score,
-          team2_score: team2Score,
+          team1_score: mapTeam1Score,
+          team2_score: mapTeam2Score,
           agents,
           rounds_data,
         });
       }
+
+      // Extract player statistics if available
+      const player_stats: PlayerStats[] = [];
+      $(".vm-stats-game-team, .player-stats-row, [class*='player']").each((_, playerEl) => {
+        const $player = $(playerEl);
+        const playerName = $player.find(".player-name, .text-of").text().trim();
+        
+        if (playerName) {
+          // Extract basic stats (this would need to be expanded based on VLR's actual structure)
+          const kills = parseInt($player.find(".stat-kills, [data-stat='kills']").text().trim()) || 0;
+          const deaths = parseInt($player.find(".stat-deaths, [data-stat='deaths']").text().trim()) || 0;
+          const assists = parseInt($player.find(".stat-assists, [data-stat='assists']").text().trim()) || 0;
+          
+          player_stats.push({
+            player_name: playerName,
+            team: "team1", // This would need better logic to determine team
+            agent: "", // Would need to extract from agent icons
+            kills,
+            deaths,
+            assists,
+            acs: 0,
+            k_d_ratio: deaths > 0 ? kills / deaths : kills,
+            adr: 0,
+            headshot_percentage: 0,
+            first_kills: 0,
+            first_deaths: 0,
+            maps_played: 1
+          });
+        }
+      });
+
+      // Extract VOD and stats URLs
+      let vod_url: string | undefined;
+      let stats_url: string | undefined;
+      
+      $("a[href*='youtube'], a[href*='twitch'], a[href*='vod']").each((_, linkEl) => {
+        const href = $(linkEl).attr("href");
+        if (href && !vod_url) {
+          vod_url = href.startsWith("http") ? href : `${this.baseUrl}${href}`;
+        }
+      });
+      
+      $("a[href*='stats']").each((_, linkEl) => {
+        const href = $(linkEl).attr("href");
+        if (href && !stats_url) {
+          stats_url = href.startsWith("http") ? href : `${this.baseUrl}${href}`;
+        }
+      });
+
+      console.log(`Successfully scraped match ${vlrMatchId}: ${team1Name} vs ${team2Name} (${team1Score}-${team2Score})`);
+      console.log(`Found ${maps.length} maps, ${player_stats.length} player stats`);
 
       return {
         vlr_match_id: vlrMatchId,
@@ -462,17 +676,20 @@ export class VLRScraper {
         team2_score: team2Score,
         tournament_name: tournamentName,
         status,
-        match_time: undefined, // Match time is not available on details page
+        match_time: matchTime,
         match_format: matchFormat,
         stage: stage || undefined,
         match_url: url,
-        team1_logo_url: undefined, // Team logos are not available on details page
-        team2_logo_url: undefined, // Team logos are not available on details page
-        tournament_logo_url: undefined, // Tournament logo is not available on details page
+        team1_logo_url: team1LogoUrl || undefined,
+        team2_logo_url: team2LogoUrl || undefined,
+        tournament_logo_url: tournamentLogoUrl || undefined,
         maps_data: maps,
+        player_stats: player_stats.length > 0 ? player_stats : undefined,
+        vod_url,
+        stats_url
       };
     } catch (error) {
-      console.error("Error parsing match details:", error);
+      console.error(`Error parsing match details for ${vlrMatchId}:`, error);
       return null;
     }
   }
