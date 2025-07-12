@@ -702,7 +702,10 @@ export class VLRScraper {
       new_tournaments: 0,
       errors: [],
       duration_ms: 0
+      duration_ms: 0
     };
+
+    const startTime = Date.now();
 
     const startTime = Date.now();
 
@@ -717,40 +720,18 @@ export class VLRScraper {
       // Combine all matches and get unique match IDs
       const allMatches = [...upcomingMatches, ...liveMatches, ...resultMatches];
       const uniqueMatchIds = new Set<string>();
-      
       for (const match of allMatches) {
         if (match.vlr_match_id && !uniqueMatchIds.has(match.vlr_match_id)) {
           uniqueMatchIds.add(match.vlr_match_id);
         }
-      }
       
-      console.log(`Found ${uniqueMatchIds.size} unique matches to process`);
-      
-      // Count processed matches for response
-      for (const matchId of uniqueMatchIds) {
-        try {
-          console.log(`Scraping detailed data for match ${matchId}...`);
-          
-          // Get detailed match data
-          const detailedMatch = await this.scrapeMatchDetails(matchId);
-          
-          if (detailedMatch) {
             response.matches_scraped++;
             console.log(`Successfully processed match ${matchId}`);
           } else {
             const error = `Failed to scrape detailed data for match ${matchId}`;
             console.warn(error);
             response.errors.push(error);
-          }
-          
-        } catch (error) {
-          const errorMsg = `Error processing match ${matchId}: ${error instanceof Error ? error.message : String(error)}`;
-          console.error(errorMsg);
-          response.errors.push(errorMsg);
-        }
-      }
-      
-      console.log(`Scraping completed: ${response.matches_scraped} new, ${response.matches_updated} updated, ${response.new_teams} new teams, ${response.new_tournaments} new tournaments`);
+      console.log(`Scraping completed: ${response.matches_scraped} matches processed`);
       
       if (response.errors.length > 0) {
         console.warn(`Encountered ${response.errors.length} errors during scraping`);
@@ -762,17 +743,9 @@ export class VLRScraper {
       console.error(errorMsg);
       response.success = false;
       response.errors.push(errorMsg);
-      
-      // Log failed scraping attempt
-      this.dbService.logScraping(
-        'full_scrape',
-        `${this.baseUrl}/matches`,
-        'error',
-        errorMsg,
-        0
-      );
     }
     
+    response.duration_ms = Date.now() - startTime;
     return response;
   }
 }
