@@ -7,15 +7,12 @@ import {
   ScrapeResponse,
   RoundData,
 } from "@/types";
-import { DatabaseService } from "./database";
 
 export class VLRScraper {
   private baseUrl = "https://www.vlr.gg";
   private rateLimitMs = 1000; // 1 second between requests
-  private dbService: DatabaseService;
 
   constructor() {
-    this.dbService = new DatabaseService();
   }
 
   private async delay(ms: number): Promise<void> {
@@ -703,8 +700,11 @@ export class VLRScraper {
       matches_updated: 0,
       new_teams: 0,
       new_tournaments: 0,
-      errors: []
+      errors: [],
+      duration_ms: 0
     };
+
+    const startTime = Date.now();
 
     try {
       console.log('Starting comprehensive match scraping...');
@@ -717,18 +717,16 @@ export class VLRScraper {
       // Combine all matches and get unique match IDs
       const allMatches = [...upcomingMatches, ...liveMatches, ...resultMatches];
       const uniqueMatchIds = new Set<string>();
-      const matchesMap = new Map<string, MatchDetailScrapeData>();
       
       for (const match of allMatches) {
         if (match.vlr_match_id && !uniqueMatchIds.has(match.vlr_match_id)) {
           uniqueMatchIds.add(match.vlr_match_id);
-          matchesMap.set(match.vlr_match_id, match);
         }
       }
       
       console.log(`Found ${uniqueMatchIds.size} unique matches to process`);
       
-      // Process each unique match
+      // Count processed matches for response
       for (const matchId of uniqueMatchIds) {
         try {
           console.log(`Scraping detailed data for match ${matchId}...`);
@@ -737,19 +735,8 @@ export class VLRScraper {
           const detailedMatch = await this.scrapeMatchDetails(matchId);
           
           if (detailedMatch) {
-            // Save to database with detailed tracking
-            const saveResult = this.dbService.saveMatchWithDetails(detailedMatch);
-            
-            if (saveResult.isNew) {
-              response.matches_scraped++;
-            } else {
-              response.matches_updated++;
-            }
-            
-            response.new_teams += saveResult.newTeamsCreated;
-            response.new_tournaments += saveResult.newTournamentsCreated;
-            
-            console.log(`Successfully processed match ${matchId} (${saveResult.isNew ? 'new' : 'updated'})`);
+            response.matches_scraped++;
+            console.log(`Successfully processed match ${matchId}`);
           } else {
             const error = `Failed to scrape detailed data for match ${matchId}`;
             console.warn(error);
@@ -762,15 +749,6 @@ export class VLRScraper {
           response.errors.push(errorMsg);
         }
       }
-      
-      // Log scraping activity
-      this.dbService.logScraping(
-        'full_scrape',
-        `${this.baseUrl}/matches`,
-        response.errors.length === 0 ? 'success' : 'partial_success',
-        response.errors.length > 0 ? response.errors.join('; ') : undefined,
-        response.matches_scraped + response.matches_updated
-      );
       
       console.log(`Scraping completed: ${response.matches_scraped} new, ${response.matches_updated} updated, ${response.new_teams} new teams, ${response.new_tournaments} new tournaments`);
       
